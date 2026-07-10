@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Font Manager — Personal Font Library</title>
+  <meta name="description" content="Browse, preview, search, and download fonts from your personal font library.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔤</text></svg>">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header" id="main-header">
+    <div class="header-content">
+      <div class="logo" id="logo">
+        <span class="logo-icon">✦</span>
+        <span class="logo-text">FontVault</span>
+      </div>
+      <nav class="nav">
+        <span class="font-count-badge" id="font-count">0 fonts</span>
+        <a href="/upload" class="nav-link upload-link" id="upload-nav">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span>Upload</span>
+        </a>
+        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+          <!-- Sun icon for dark mode, Moon for light -->
+          <svg class="sun-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="moon-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Controls Bar -->
+  <div class="controls-bar" id="controls-bar">
+    <div class="controls-content">
+      <!-- Search -->
+      <div class="search-wrapper" id="search-wrapper">
+        <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" class="search-input" id="search-input" placeholder="Search fonts..." autocomplete="off">
+        <button class="search-clear" id="search-clear" aria-label="Clear search">&times;</button>
+      </div>
+
+      <!-- Preview Text Input -->
+      <div class="preview-input-wrapper" id="preview-input-wrapper">
+        <svg class="preview-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+        <input type="text" class="preview-input" id="preview-input" placeholder="Type custom preview text...">
+      </div>
+
+      <!-- Font Size Slider -->
+      <div class="slider-wrapper" id="slider-wrapper">
+        <label class="slider-label" for="font-size-slider">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          <span id="font-size-value">24px</span>
+        </label>
+        <input type="range" class="font-size-slider" id="font-size-slider" min="12" max="72" value="24">
+      </div>
+
+      <!-- Sort Button -->
+      <button class="sort-btn" id="sort-btn" aria-label="Sort fonts" title="Sort A-Z / Z-A">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5h10"/><path d="M11 9h7"/><path d="M11 13h4"/><path d="M3 17l3 3 3-3"/><path d="M6 18V4"/></svg>
+        <span class="sort-label" id="sort-label">A–Z</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Language Filter Bar -->
+  <div class="filter-bar" id="filter-bar">
+    <div class="filter-content">
+      <!-- Language tabs -->
+      <div class="lang-tabs" id="lang-tabs">
+        <button class="lang-tab active" data-lang="all">All</button>
+        <button class="lang-tab" data-lang="english">🇬🇧 English</button>
+        <button class="lang-tab" data-lang="bengali">🇧🇩 Bengali</button>
+        <button class="lang-tab" data-lang="hindi">🇮🇳 Hindi</button>
+        <button class="lang-tab" data-lang="arabic">🇸🇦 Arabic</button>
+        <button class="lang-tab" data-lang="chinese">🇨🇳 Chinese</button>
+      </div>
+
+      <div class="filter-divider"></div>
+
+      <!-- A–Z alphabet filter -->
+      <div class="alpha-filter" id="alpha-filter">
+        <button class="alpha-btn active" data-letter="all">#</button>
+        <button class="alpha-btn" data-letter="0">0–9</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Font Grid -->
+  <main class="font-grid-container">
+    <div class="font-grid" id="font-grid">
+      <!-- Font cards rendered by JavaScript -->
+    </div>
+    <div class="no-fonts-message" id="no-fonts-message" style="display: none;">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <h3>No fonts found</h3>
+      <p>Try adjusting your search query</p>
+    </div>
+    <!-- Loading skeletons -->
+    <div class="skeleton-grid" id="skeleton-grid">
+      <!-- 8 skeleton cards -->
+    </div>
+  </main>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Copy Tooltip -->
+  <div class="copy-tooltip" id="copy-tooltip">Copied!</div>
+
+  <script src="script.js"></script>
+</body>
+</html>
