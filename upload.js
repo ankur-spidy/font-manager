@@ -367,81 +367,52 @@ function escapeHTML(str) {
  * ═══════════════════════════════════════════════════════════ */
 
 /**
- * Upload all queued font files directly to Supabase Storage.
+ * Upload all queued font files via Supabase Edge Function.
  */
 async function uploadFonts() {
   if (!selectedFiles.length || isUploading) return;
 
   isUploading = true;
 
-  // Prepare UI
   if (uploadBtn)      uploadBtn.style.display      = 'none';
   if (uploadProgress) uploadProgress.style.display = '';
   if (progressFill)   progressFill.style.width     = '0%';
-  if (progressText)   progressText.textContent     = 'Uploading… 0%';
+  if (progressText)   progressText.textContent     = 'Uploading…';
 
-  const uploaded   = [];
-  const duplicates = [];
-  const errors     = [];
-  const total      = selectedFiles.length;
+  const formData = new FormData();
+  selectedFiles.forEach(file => formData.append('fonts', file));
 
-  for (let i = 0; i < total; i++) {
-    const file     = selectedFiles[i];
-    const fileName = file.name;
-    const mimeType = getMimeType(fileName);
-
-    // Update progress
-    const pct = Math.round((i / total) * 100);
-    if (progressFill) progressFill.style.width  = `${pct}%`;
-    if (progressText) progressText.textContent  = `Uploading… ${pct}% (${i + 1}/${total})`;
-
-    try {
-      // Try uploading — if file already exists Supabase returns 409
-      const uploadRes = await fetch(
-        `${SUPABASE_URL}/storage/v1/object/${BUCKET_NAME}/${encodeURIComponent(fileName)}`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': SUPABASE_ANON,
-            'Authorization': `Bearer ${SUPABASE_ANON}`,
-            'Content-Type': mimeType,
-            'x-upsert': 'false',
-          },
-          body: file,
-        }
-      );
-
-      if (uploadRes.ok) {
-        uploaded.push(fileName);
-      } else if (uploadRes.status === 409 || uploadRes.status === 400) {
-        // 409 = already exists, 400 can also mean duplicate
-        const body = await uploadRes.json().catch(() => ({}));
-        if (body.error === 'Duplicate' || (body.message || '').toLowerCase().includes('already exists')) {
-          duplicates.push(fileName);
-        } else {
-          console.error(`Upload failed for "${fileName}":`, body);
-          errors.push(fileName);
-        }
-      } else {
-        const body = await uploadRes.json().catch(() => ({}));
-        console.error(`Upload failed for "${fileName}": ${uploadRes.status}`, body);
-        errors.push(fileName);
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/functions/v1/upload-font`,
+      {
+        method: 'POST',
+        headers: { 'x-upload-password': UPLOAD_PASSWORD },
+        body: formData,
       }
-    } catch (err) {
-      console.error(`Network error for "${fileName}":`, err);
-      errors.push(fileName);
+    );
+
+    const data = await res.json();
+
+    if (progressFill) progressFill.style.width = '100%';
+    if (progressText) progressText.textContent = 'Done!';
+
+    if (res.ok && data.success) {
+      showUploadResults({ uploaded: data.uploaded, duplicates: data.duplicates, errors: data.errors });
+      showToast('Upload complete!', 'success');
+    } else {
+      showToast(data.error || 'Upload failed', 'error');
+      if (uploadBtn)      uploadBtn.style.display      = '';
+      if (uploadProgress) uploadProgress.style.display = 'none';
     }
+  } catch (err) {
+    console.error('Upload error:', err);
+    showToast('Network error — upload failed', 'error');
+    if (uploadBtn)      uploadBtn.style.display      = '';
+    if (uploadProgress) uploadProgress.style.display = 'none';
   }
 
-  // Final progress
-  if (progressFill) progressFill.style.width  = '100%';
-  if (progressText) progressText.textContent  = 'Done!';
-
   isUploading = false;
-  showUploadResults({ uploaded, duplicates, errors });
-  showToast('Upload complete!', 'success');
-
-  // Clear queue
   selectedFiles = [];
   renderFileList();
 }
