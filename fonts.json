@@ -11408,6 +11408,14 @@
     "url": "https://pvxkmtajktghggwettjl.supabase.co/storage/v1/object/public/fonts/KHOOMMI_.TTF"
   },
   {
+    "name": "Kids Word",
+    "fileName": "Kids Word.otf",
+    "extension": "otf",
+    "size": "30.4 KB",
+    "sizeBytes": 31160,
+    "url": "https://pvxkmtajktghggwettjl.supabase.co/storage/v1/object/public/fonts/Kids%20Word.otf"
+  },
+  {
     "name": "Kingshuk M S",
     "fileName": "Kingshuk-M-S.ttf",
     "extension": "ttf",
@@ -19750,6 +19758,14 @@
     "size": "44.0 KB",
     "sizeBytes": 45020,
     "url": "https://pvxkmtajktghggwettjl.supabase.co/storage/v1/object/public/fonts/Simul%20Unicode.otf"
+  },
+  {
+    "name": "Singsong",
+    "fileName": "Singsong.otf",
+    "extension": "otf",
+    "size": "46.1 KB",
+    "sizeBytes": 47212,
+    "url": "https://pvxkmtajktghggwettjl.supabase.co/storage/v1/object/public/fonts/Singsong.otf"
   },
   {
     "name": "SitkaVF Italic",
