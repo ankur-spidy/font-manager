@@ -1,12 +1,15 @@
 /**
  * ============================================================
  *  Upload Page – Font Manager
- * ============================================================
- *  Handles password verification, font file selection via
- *  drag-and-drop or file picker, upload with progress tracking,
- *  theme toggling, and toast notifications.
+ *  Uploads directly to Supabase Storage from the browser.
  * ============================================================
  */
+
+// ── Supabase config ─────────────────────────────────────────
+const SUPABASE_URL  = 'https://pvxkmtajktghggwettjl.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_Qc8A0r926ucy2FX70JXaLQ__DMGUbUss';
+const BUCKET_NAME   = 'fonts';
+const UPLOAD_PASSWORD = '12345';   // checked client-side (gate kept simple)
 
 // ── DOM References ──────────────────────────────────────────
 const passwordCard    = document.getElementById('password-card');
@@ -125,44 +128,23 @@ function initEventListeners() {
  * ═══════════════════════════════════════════════════════════ */
 
 /**
- * Verify the entered password against the server.
+ * Verify the entered password against the hardcoded value.
  * On success the password card fades out and the upload card fades in.
  * @param {string} password
  */
 async function verifyPassword(password) {
-  try {
-    const res = await fetch('/api/verify-password', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password }),
-    });
-
-    const data = await res.json();
-
-    if (res.ok && data.success) {
-      // ✅ Authenticated
-      isAuthenticated = true;
-
-      // Fade out password card, then reveal upload card
-      passwordCard.classList.add('fade-out');
-
-      passwordCard.addEventListener('animationend', () => {
-        passwordCard.style.display = 'none';
-        uploadCard.style.display = '';
-        // Small delay so the browser paints the element before animating
-        requestAnimationFrame(() => uploadCard.classList.add('fade-in'));
-      }, { once: true });
-
-      showToast('Authentication successful', 'success');
-    } else {
-      // ❌ Wrong password
-      showPasswordError('Wrong Password');
-      showToast('Incorrect password', 'error');
-    }
-  } catch (err) {
-    console.error('Password verification failed:', err);
-    showPasswordError('Network error – please try again');
-    showToast('Network error – could not verify password', 'error');
+  if (password === UPLOAD_PASSWORD) {
+    isAuthenticated = true;
+    passwordCard.classList.add('fade-out');
+    passwordCard.addEventListener('animationend', () => {
+      passwordCard.style.display = 'none';
+      uploadCard.style.display = '';
+      requestAnimationFrame(() => uploadCard.classList.add('fade-in'));
+    }, { once: true });
+    showToast('Authentication successful', 'success');
+  } else {
+    showPasswordError('Wrong Password');
+    showToast('Incorrect password', 'error');
   }
 }
 
@@ -385,7 +367,7 @@ function escapeHTML(str) {
  * ═══════════════════════════════════════════════════════════ */
 
 /**
- * Upload all queued font files to the server with progress tracking.
+ * Upload all queued font files directly to Supabase Storage.
  */
 async function uploadFonts() {
   if (!selectedFiles.length || isUploading) return;
@@ -393,73 +375,83 @@ async function uploadFonts() {
   isUploading = true;
 
   // Prepare UI
-  if (uploadBtn) uploadBtn.style.display = 'none';
+  if (uploadBtn)      uploadBtn.style.display      = 'none';
   if (uploadProgress) uploadProgress.style.display = '';
-  if (progressFill) progressFill.style.width = '0%';
-  if (progressText) progressText.textContent = 'Uploading… 0%';
+  if (progressFill)   progressFill.style.width     = '0%';
+  if (progressText)   progressText.textContent     = 'Uploading… 0%';
 
-  // Build multipart form data
-  const formData = new FormData();
-  selectedFiles.forEach((file) => formData.append('fonts', file));
-  formData.append('password', passwordInput?.value || '');
+  const uploaded   = [];
+  const duplicates = [];
+  const errors     = [];
+  const total      = selectedFiles.length;
 
-  // Use XHR so we can track upload progress
-  const xhr = new XMLHttpRequest();
+  for (let i = 0; i < total; i++) {
+    const file     = selectedFiles[i];
+    const fileName = file.name;
+    const mimeType = getMimeType(fileName);
 
-  xhr.upload.addEventListener('progress', (e) => {
-    if (e.lengthComputable) {
-      const pct = Math.round((e.loaded / e.total) * 100);
-      if (progressFill) progressFill.style.width = `${pct}%`;
-      if (progressText) progressText.textContent = `Uploading… ${pct}%`;
-    }
-  });
+    // Update progress
+    const pct = Math.round((i / total) * 100);
+    if (progressFill) progressFill.style.width  = `${pct}%`;
+    if (progressText) progressText.textContent  = `Uploading… ${pct}% (${i + 1}/${total})`;
 
-  xhr.addEventListener('load', () => {
-    isUploading = false;
+    try {
+      // Check if file already exists
+      const checkRes = await fetch(
+        `${SUPABASE_URL}/storage/v1/object/info/public/${BUCKET_NAME}/${encodeURIComponent(fileName)}`,
+        { headers: { 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${SUPABASE_ANON}` } }
+      );
 
-    if (xhr.status >= 200 && xhr.status < 300) {
-      try {
-        const data = JSON.parse(xhr.responseText);
-        showUploadResults(data);
-        showToast('Upload complete!', 'success');
-
-        // Clear the queue
-        selectedFiles = [];
-        renderFileList();
-      } catch {
-        showToast('Upload succeeded but response was unexpected', 'info');
-        resetUploadForm();
+      if (checkRes.ok) {
+        duplicates.push(fileName);
+        continue;
       }
-    } else {
-      // Server returned an error status
-      let msg = 'Upload failed';
-      try {
-        const err = JSON.parse(xhr.responseText);
-        if (err.message) msg = err.message;
-      } catch { /* ignore parse error */ }
 
-      showToast(msg, 'error');
-      if (uploadBtn) uploadBtn.style.display = '';
-      if (uploadProgress) uploadProgress.style.display = 'none';
+      // Upload
+      const uploadRes = await fetch(
+        `${SUPABASE_URL}/storage/v1/object/${BUCKET_NAME}/${encodeURIComponent(fileName)}`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_ANON,
+            'Authorization': `Bearer ${SUPABASE_ANON}`,
+            'Content-Type': mimeType,
+            'x-upsert': 'false',
+          },
+          body: file,
+        }
+      );
+
+      if (uploadRes.ok) {
+        uploaded.push(fileName);
+      } else {
+        const err = await uploadRes.json().catch(() => ({}));
+        console.error(`Upload failed for "${fileName}":`, err);
+        errors.push(fileName);
+      }
+    } catch (err) {
+      console.error(`Network error for "${fileName}":`, err);
+      errors.push(fileName);
     }
-  });
+  }
 
-  xhr.addEventListener('error', () => {
-    isUploading = false;
-    showToast('Network error – upload failed', 'error');
-    if (uploadBtn) uploadBtn.style.display = '';
-    if (uploadProgress) uploadProgress.style.display = 'none';
-  });
+  // Final progress
+  if (progressFill) progressFill.style.width  = '100%';
+  if (progressText) progressText.textContent  = 'Done!';
 
-  xhr.addEventListener('abort', () => {
-    isUploading = false;
-    showToast('Upload cancelled', 'info');
-    if (uploadBtn) uploadBtn.style.display = '';
-    if (uploadProgress) uploadProgress.style.display = 'none';
-  });
+  isUploading = false;
+  showUploadResults({ uploaded, duplicates, errors });
+  showToast('Upload complete!', 'success');
 
-  xhr.open('POST', '/api/upload');
-  xhr.send(formData);
+  // Clear queue
+  selectedFiles = [];
+  renderFileList();
+}
+
+function getMimeType(fileName) {
+  const ext = fileName.slice(fileName.lastIndexOf('.')).toLowerCase();
+  const map = { '.ttf': 'font/ttf', '.otf': 'font/otf', '.woff': 'font/woff', '.woff2': 'font/woff2' };
+  return map[ext] || 'application/octet-stream';
 }
 
 
@@ -490,6 +482,15 @@ function showUploadResults(data) {
     html += `<h3>Skipped (already exist)</h3><ul class="result-list">`;
     data.duplicates.forEach((name) => {
       html += `<li><span class="result-icon warning">⚠</span> ${escapeHTML(name)}</li>`;
+    });
+    html += `</ul>`;
+  }
+
+  // ❌ Errors
+  if (data.errors?.length) {
+    html += `<h3>Failed</h3><ul class="result-list">`;
+    data.errors.forEach((name) => {
+      html += `<li><span class="result-icon error">✕</span> ${escapeHTML(name)}</li>`;
     });
     html += `</ul>`;
   }
