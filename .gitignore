@@ -1,6 +1,9 @@
 # Dependencies
 node_modules/
 
+# Font files — stored in Supabase Storage, not in Git
+fonts/
+
 # Environment files
 .env
 .env.local
