@@ -124,7 +124,7 @@ function buildAlphaFilter() {
 async function fetchFonts() {
   try {
     isLoading = true;
-    const res = await fetch('fonts.json');
+    const res = await fetch('fonts.json?v=' + Date.now());
     if (!res.ok) throw new Error(`fonts.json not found: ${res.status}`);
     allFonts = await res.json();
 

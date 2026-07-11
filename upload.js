@@ -6,10 +6,10 @@
  */
 
 // ── Supabase config ─────────────────────────────────────────
-const SUPABASE_URL  = 'https://pvxkmtajktghggwettjl.supabase.co';
-const SUPABASE_ANON = 'sb_publishable_Qc8A0r926ucy2FX70JXaLQ__DMGUbUss';
-const BUCKET_NAME   = 'fonts';
-const UPLOAD_PASSWORD = '12345';   // checked client-side (gate kept simple)
+const SUPABASE_URL    = 'https://pvxkmtajktghggwettjl.supabase.co';
+const SUPABASE_ANON   = 'sb_publishable_Qc8A0r926ucy2FX70JXaLQ__DMGUbUss';
+const BUCKET_NAME     = 'fonts';
+const UPLOAD_PASSWORD = '12345';
 
 // ── DOM References ──────────────────────────────────────────
 const passwordCard    = document.getElementById('password-card');
@@ -396,18 +396,7 @@ async function uploadFonts() {
     if (progressText) progressText.textContent  = `Uploading… ${pct}% (${i + 1}/${total})`;
 
     try {
-      // Check if file already exists
-      const checkRes = await fetch(
-        `${SUPABASE_URL}/storage/v1/object/info/public/${BUCKET_NAME}/${encodeURIComponent(fileName)}`,
-        { headers: { 'apikey': SUPABASE_ANON, 'Authorization': `Bearer ${SUPABASE_ANON}` } }
-      );
-
-      if (checkRes.ok) {
-        duplicates.push(fileName);
-        continue;
-      }
-
-      // Upload
+      // Try uploading — if file already exists Supabase returns 409
       const uploadRes = await fetch(
         `${SUPABASE_URL}/storage/v1/object/${BUCKET_NAME}/${encodeURIComponent(fileName)}`,
         {
@@ -424,9 +413,18 @@ async function uploadFonts() {
 
       if (uploadRes.ok) {
         uploaded.push(fileName);
+      } else if (uploadRes.status === 409 || uploadRes.status === 400) {
+        // 409 = already exists, 400 can also mean duplicate
+        const body = await uploadRes.json().catch(() => ({}));
+        if (body.error === 'Duplicate' || (body.message || '').toLowerCase().includes('already exists')) {
+          duplicates.push(fileName);
+        } else {
+          console.error(`Upload failed for "${fileName}":`, body);
+          errors.push(fileName);
+        }
       } else {
-        const err = await uploadRes.json().catch(() => ({}));
-        console.error(`Upload failed for "${fileName}":`, err);
+        const body = await uploadRes.json().catch(() => ({}));
+        console.error(`Upload failed for "${fileName}": ${uploadRes.status}`, body);
         errors.push(fileName);
       }
     } catch (err) {
