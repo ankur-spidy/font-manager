@@ -89,6 +89,22 @@ Deno.serve(async (req) => {
     }
   }
 
+  // If anything was uploaded, trigger GitHub Actions to rebuild fonts.json
+  if (uploaded.length > 0) {
+    const ghToken = Deno.env.get('GH_PAT');
+    if (ghToken) {
+      await fetch('https://api.github.com/repos/ankur-spidy/font-manager/actions/workflows/rebuild-fonts-json.yml/dispatches', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${ghToken}`,
+          'Accept': 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ref: 'main' }),
+      });
+    }
+  }
+
   return new Response(
     JSON.stringify({ success: true, uploaded, duplicates, errors }),
     { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
