@@ -2,8 +2,14 @@
  * ============================================================
  *  Font Manager — Main Script
  *  Browse, search, filter by language & alphabet, preview fonts.
+ *  Data source: Supabase Storage (direct browser calls)
  * ============================================================
  */
+
+// ── Supabase config (public/anon values — safe to expose) ──
+const SUPABASE_URL    = 'https://pvxkmtajktghggwettjl.supabase.co';
+const SUPABASE_ANON   = 'sb_publishable_Qc8A0r926ucy2FX70JXaLQ__DMGUbUss';
+const BUCKET_NAME     = 'fonts';
 
 // ── Default preview text ────────────────────────────────────
 const DEFAULT_PREVIEW = `The quick brown fox jumps over the lazy dog\nABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n1234567890`;
@@ -117,16 +123,77 @@ function buildAlphaFilter() {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Data
+//  Data — fetch font list directly from Supabase Storage
 // ─────────────────────────────────────────────────────────────
+
+const ALLOWED_EXTENSIONS = ['.ttf', '.otf', '.woff', '.woff2'];
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i     = Math.floor(Math.log(bytes) / Math.log(1024));
+  const size  = bytes / Math.pow(1024, i);
+  return i === 0 ? `${size} ${units[i]}` : `${size.toFixed(1)} ${units[i]}`;
+}
+
+function getPublicUrl(fileName) {
+  return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET_NAME}/${encodeURIComponent(fileName)}`;
+}
+
+async function listAllFiles() {
+  const allFiles = [];
+  let offset = 0;
+  const limit = 1000;
+
+  while (true) {
+    const res = await fetch(
+      `${SUPABASE_URL}/storage/v1/object/list/${BUCKET_NAME}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${SUPABASE_ANON}`,
+          'apikey': SUPABASE_ANON,
+        },
+        body: JSON.stringify({ limit, offset, sortBy: { column: 'name', order: 'asc' } }),
+      }
+    );
+
+    if (!res.ok) throw new Error(`Supabase list error: ${res.status}`);
+    const data = await res.json();
+    if (!data || data.length === 0) break;
+    allFiles.push(...data);
+    if (data.length < limit) break;
+    offset += limit;
+  }
+
+  return allFiles;
+}
+
 async function fetchFonts() {
   try {
     isLoading = true;
-    const response = await fetch('/api/fonts');
-    if (!response.ok) throw new Error(`Server responded with ${response.status}`);
+    const files = await listAllFiles();
 
-    const data = await response.json();
-    allFonts = Array.isArray(data) ? data : (data.fonts || []);
+    allFonts = files
+      .filter(file => {
+        const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+        return ALLOWED_EXTENSIONS.includes(ext);
+      })
+      .map(file => {
+        const ext      = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+        const rawName  = file.name.slice(0, file.name.lastIndexOf('.'));
+        const cleanName = rawName.replace(/[_]/g, ' ').replace(/[-]/g, ' ').replace(/\s+/g, ' ').trim();
+        return {
+          name:      cleanName,
+          fileName:  file.name,
+          extension: ext.slice(1),
+          size:      formatFileSize(file.metadata?.size || 0),
+          sizeBytes: file.metadata?.size || 0,
+          url:       getPublicUrl(file.name),
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
     updateFontCount(allFonts.length);
     hideSkeletons();
@@ -285,8 +352,9 @@ function createFontCard(font, index) {
         </svg>
         ${escapeHTML(font.size)}
       </span>
-      <a href="/api/fonts/download/${encodeURIComponent(font.fileName)}"
-         class="download-btn" download="${escapeAttr(font.fileName)}">
+      <a href="${escapeAttr(font.url)}"
+         class="download-btn" download="${escapeAttr(font.fileName)}"
+         target="_blank" rel="noopener">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
