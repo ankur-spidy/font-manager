@@ -1,152 +1,142 @@
 // ============================================================
-//  Font Manager — Express.js Server
-//  A clean, production-ready backend for managing font files.
+//  Font Manager — Express.js Server (Supabase Storage)
+//  All fonts are stored in Supabase — no local fonts/ folder.
 // ============================================================
 
-const express = require('express');
-const path    = require('path');
-const fs      = require('fs');
-const fsp     = fs.promises;
-const multer  = require('multer');
+const express    = require('express');
+const path       = require('path');
+const multer     = require('multer');
+const { createClient } = require('@supabase/supabase-js');
 
 // ────────────────────────────────────────────────────────────
-//  Constants & Configuration
+//  Configuration
 // ────────────────────────────────────────────────────────────
 
-const PORT              = 3000;
-const FONTS_DIR         = path.join(__dirname, 'fonts');
-const UPLOAD_PASSWORD   = '12345';
+const PORT             = process.env.PORT || 3000;
+const UPLOAD_PASSWORD  = process.env.UPLOAD_PASSWORD || '12345';
+const SUPABASE_URL     = process.env.SUPABASE_URL     || 'https://pvxkmtajktghggwettjl.supabase.co';
+const SUPABASE_KEY     = process.env.SUPABASE_KEY     || 'sb_publishable_Qc8A0r926ucy2FX70JXaLQ__DMGUbUs';
+const BUCKET           = process.env.SUPABASE_BUCKET  || 'fonts';
+
 const ALLOWED_EXTENSIONS = ['.ttf', '.otf', '.woff', '.woff2'];
 
-/** Map file extensions → correct MIME types for font delivery */
 const MIME_TYPES = {
   '.ttf':   'font/ttf',
   '.otf':   'font/otf',
   '.woff':  'font/woff',
-  '.woff2': 'font/woff2'
+  '.woff2': 'font/woff2',
 };
 
 // ────────────────────────────────────────────────────────────
-//  Multer Setup — Disk Storage, skip exact duplicates
+//  Supabase Client
 // ────────────────────────────────────────────────────────────
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, FONTS_DIR),
+const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  filename: (_req, file, cb) => {
-    const ext      = path.extname(file.originalname).toLowerCase();
-    const baseName = path.basename(file.originalname, path.extname(file.originalname));
-    cb(null, `${baseName}${ext}`);
-  }
-});
-
-/** Only allow font files with approved extensions AND reject exact duplicates */
-const fileFilter = (req, file, cb) => {
-  const ext = path.extname(file.originalname).toLowerCase();
-
-  // Reject unsupported types
-  if (!ALLOWED_EXTENSIONS.includes(ext)) {
-    return cb(new Error(`File type "${ext}" is not allowed. Accepted: ${ALLOWED_EXTENSIONS.join(', ')}`), false);
-  }
-
-  // Reject if a file with the same name already exists on disk
-  const destPath = path.join(FONTS_DIR, file.originalname);
-  if (fs.existsSync(destPath)) {
-    if (!req.skippedFiles) req.skippedFiles = [];
-    req.skippedFiles.push(file.originalname);
-    return cb(null, false); // skip — don't save
-  }
-
-  cb(null, true); // accept
-};
+// ────────────────────────────────────────────────────────────
+//  Multer — memory storage (buffer → Supabase, no local disk)
+// ────────────────────────────────────────────────────────────
 
 const upload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: 50 * 1024 * 1024 } // 50 MB
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      return cb(new Error(`"${ext}" not allowed. Accepted: ${ALLOWED_EXTENSIONS.join(', ')}`), false);
+    }
+    cb(null, true);
+  },
 });
 
 // ────────────────────────────────────────────────────────────
-//  Utility — Format Bytes into Human-Readable Sizes
+//  Utility — Format bytes
 // ────────────────────────────────────────────────────────────
 
 function formatFileSize(bytes) {
-  if (bytes === 0) return '0 B';
-
+  if (!bytes || bytes === 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
-  const k     = 1024;
-  // Determine which unit bracket the value falls into
-  const i     = Math.floor(Math.log(bytes) / Math.log(k));
-  const size  = bytes / Math.pow(k, i);
-
-  // Only show decimals for KB and above
-  return i === 0
-    ? `${size} ${units[i]}`
-    : `${size.toFixed(1)} ${units[i]}`;
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  const size = bytes / Math.pow(1024, i);
+  return i === 0 ? `${size} ${units[i]}` : `${size.toFixed(1)} ${units[i]}`;
 }
 
 // ────────────────────────────────────────────────────────────
-//  Utility — Build the Font List from the fonts/ Directory
+//  Utility — List fonts from Supabase Storage
+//  Handles pagination — Supabase returns max 1000 per call.
 // ────────────────────────────────────────────────────────────
 
 async function getFontList() {
   try {
-    const files = await fsp.readdir(FONTS_DIR);
+    let allFiles = [];
+    let offset   = 0;
+    const limit  = 1000;
 
-    // Keep only files whose extension is in the allowed list
-    const fontFiles = files.filter(file => {
-      const ext = path.extname(file).toLowerCase();
+    // Page through the bucket until we have everything
+    while (true) {
+      const { data, error } = await supabase.storage
+        .from(BUCKET)
+        .list('', { limit, offset, sortBy: { column: 'name', order: 'asc' } });
+
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+
+      allFiles = allFiles.concat(data);
+      if (data.length < limit) break; // last page
+      offset += limit;
+    }
+
+    // Filter to allowed font extensions only
+    const fontFiles = allFiles.filter(file => {
+      const ext = path.extname(file.name).toLowerCase();
       return ALLOWED_EXTENSIONS.includes(ext);
     });
 
-    // Gather metadata for each font file
-    const fonts = await Promise.all(
-      fontFiles.map(async (fileName) => {
-        const filePath  = path.join(FONTS_DIR, fileName);
-        const stat      = await fsp.stat(filePath);
-        const ext       = path.extname(fileName).toLowerCase();
-        const rawName   = path.basename(fileName, path.extname(fileName));
+    // Build public URL + metadata for each font
+    const fonts = fontFiles.map(file => {
+      const ext      = path.extname(file.name).toLowerCase();
+      const rawName  = path.basename(file.name, path.extname(file.name));
+      const cleanName = rawName
+        .replace(/[_]/g, ' ')
+        .replace(/[-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-        // Pretty-print the name: swap underscores & hyphens for spaces
-        const cleanName = rawName
-          .replace(/[_]/g, ' ')
-          .replace(/[-]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
+      // Get the public URL from Supabase
+      const { data: urlData } = supabase.storage
+        .from(BUCKET)
+        .getPublicUrl(file.name);
 
-        return {
-          name:      cleanName,
-          fileName:  fileName,
-          extension: ext.slice(1),          // 'ttf', 'otf', etc.
-          size:      formatFileSize(stat.size),
-          sizeBytes: stat.size
-        };
-      })
-    );
+      return {
+        name:      cleanName,
+        fileName:  file.name,
+        extension: ext.slice(1),
+        size:      formatFileSize(file.metadata?.size),
+        sizeBytes: file.metadata?.size || 0,
+        url:       urlData.publicUrl,   // direct Supabase public URL
+      };
+    });
 
-    // Sort alphabetically by display name (case-insensitive)
+    // Sort alphabetically
     fonts.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
     return fonts;
   } catch (err) {
-    console.error('❌ Error reading font directory:', err.message);
+    console.error('❌ Supabase list error:', err.message);
     return [];
   }
 }
 
 // ────────────────────────────────────────────────────────────
-//  Express App Initialisation
+//  Express App
 // ────────────────────────────────────────────────────────────
 
 const app = express();
 
-// ── Middleware ───────────────────────────────────────────────
-
-// Parse JSON & URL-encoded bodies
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// CORS — allow all origins for local development
+// CORS
 app.use((_req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -155,231 +145,181 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Simple request logger
+// Logger
 app.use((req, _res, next) => {
   console.log(`[${new Date().toLocaleTimeString()}]  ${req.method}  ${req.url}`);
   next();
 });
 
-// ── Static File Serving ─────────────────────────────────────
-
-// Serve front-end assets (HTML, CSS, JS) from the project root
+// Serve static front-end files
 app.use(express.static(__dirname, { index: false }));
 
-// Serve /fonts/ with correct MIME types and caching
-app.use('/fonts', express.static(FONTS_DIR, {
-  setHeaders: (res, filePath) => {
-    const ext = path.extname(filePath).toLowerCase();
-    if (MIME_TYPES[ext]) {
-      res.setHeader('Content-Type', MIME_TYPES[ext]);
-    }
-    // Cache fonts for 7 days — they rarely change
-    res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
-  }
-}));
-
 // ────────────────────────────────────────────────────────────
-//  Routes — Pages
+//  Pages
 // ────────────────────────────────────────────────────────────
 
-/** Home page */
-app.get('/', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-/** Upload page */
-app.get('/upload', (_req, res) => {
-  res.sendFile(path.join(__dirname, 'upload.html'));
-});
+app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/upload', (_req, res) => res.sendFile(path.join(__dirname, 'upload.html')));
 
 // ────────────────────────────────────────────────────────────
-//  Routes — API
+//  API — List fonts
 // ────────────────────────────────────────────────────────────
 
-/**
- * GET /api/fonts
- * Returns the full list of font files with metadata.
- * Optional query: ?sort=asc|desc
- */
 app.get('/api/fonts', async (req, res) => {
   try {
     let fonts = await getFontList();
-
-    // Apply optional sort direction
-    const sortDir = (req.query.sort || '').toLowerCase();
-    if (sortDir === 'desc') {
-      fonts.reverse();
-    }
-    // 'asc' is the default from getFontList(), so no action needed
-
+    if ((req.query.sort || '').toLowerCase() === 'desc') fonts.reverse();
     res.json({ success: true, fonts, count: fonts.length });
   } catch (err) {
-    console.error('❌ /api/fonts error:', err.message);
+    console.error('❌ /api/fonts:', err.message);
     res.status(500).json({ success: false, message: 'Failed to retrieve font list' });
   }
 });
 
-/**
- * GET /api/fonts/download/:filename
- * Download a specific font file by its exact filename.
- */
+// ────────────────────────────────────────────────────────────
+//  API — Download (proxy from Supabase → client)
+// ────────────────────────────────────────────────────────────
+
 app.get('/api/fonts/download/:filename', async (req, res) => {
   try {
     const fileName = req.params.filename;
-    const filePath = path.join(FONTS_DIR, fileName);
 
-    // Security: make sure the resolved path is still inside FONTS_DIR
-    if (!filePath.startsWith(FONTS_DIR)) {
-      return res.status(400).json({ success: false, message: 'Invalid filename' });
-    }
+    // Download the file buffer from Supabase
+    const { data, error } = await supabase.storage
+      .from(BUCKET)
+      .download(fileName);
 
-    // Check existence
-    try {
-      await fsp.access(filePath);
-    } catch {
+    if (error) {
       return res.status(404).json({ success: false, message: 'Font not found' });
     }
 
     const ext = path.extname(fileName).toLowerCase();
+    const buffer = Buffer.from(await data.arrayBuffer());
+
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.setHeader('Content-Type', MIME_TYPES[ext] || 'application/octet-stream');
-    res.sendFile(filePath);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
   } catch (err) {
     console.error('❌ Download error:', err.message);
     res.status(500).json({ success: false, message: 'Download failed' });
   }
 });
 
-/**
- * POST /api/verify-password
- * Quick check whether the supplied password matches.
- */
+// ────────────────────────────────────────────────────────────
+//  API — Verify password
+// ────────────────────────────────────────────────────────────
+
 app.post('/api/verify-password', (req, res) => {
   const { password } = req.body;
-  const valid = password === UPLOAD_PASSWORD;
-  res.json({ success: valid });
+  res.json({ success: password === UPLOAD_PASSWORD });
 });
 
-/**
- * POST /api/upload
- * Upload one or more font files (field name: "fonts").
- * Requires the correct password in the body.
- */
-app.post('/api/upload', (req, res) => {
-  // ── Step 1: Verify password first ──────────────────────
-  // Because multer consumes the stream, we need to parse
-  // the password from the multipart body. We'll use multer
-  // first, then check password after parsing.
+// ────────────────────────────────────────────────────────────
+//  API — Upload fonts to Supabase Storage
+// ────────────────────────────────────────────────────────────
 
-  const uploader = upload.array('fonts');
+app.post('/api/upload', upload.array('fonts'), async (req, res) => {
+  // Password check
+  const { password } = req.body;
+  if (password !== UPLOAD_PASSWORD) {
+    return res.status(401).json({ success: false, message: 'Wrong Password' });
+  }
 
-  uploader(req, res, async (err) => {
-    // ── Multer errors ──────────────────────────────────
-    if (err instanceof multer.MulterError) {
-      if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({
-          success: false,
-          message: 'File too large. Maximum size is 50 MB.'
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ success: false, message: 'No files received' });
+  }
+
+  const uploaded   = [];
+  const duplicates = [];
+  const errors     = [];
+
+  // Upload each file to Supabase Storage
+  for (const file of req.files) {
+    const ext      = path.extname(file.originalname).toLowerCase();
+    const fileName = file.originalname;
+
+    try {
+      // Check if file already exists
+      const { data: existing } = await supabase.storage
+        .from(BUCKET)
+        .list('', { search: fileName });
+
+      const alreadyExists = existing && existing.some(f => f.name === fileName);
+
+      if (alreadyExists) {
+        duplicates.push(fileName);
+        continue;
+      }
+
+      // Upload buffer to Supabase
+      const { error: uploadError } = await supabase.storage
+        .from(BUCKET)
+        .upload(fileName, file.buffer, {
+          contentType: MIME_TYPES[ext] || 'application/octet-stream',
+          upsert: false,
         });
-      }
-      return res.status(400).json({ success: false, message: err.message });
-    }
-    if (err) {
-      return res.status(400).json({ success: false, message: err.message });
-    }
 
-    // ── Password check (available after multer parsing) ─
-    const { password } = req.body;
-    if (password !== UPLOAD_PASSWORD) {
-      // Wrong password — delete any files multer already saved
-      if (req.files && req.files.length > 0) {
-        for (const file of req.files) {
-          try { await fsp.unlink(file.path); } catch { /* ignore */ }
+      if (uploadError) {
+        // If it's a duplicate (already exists error from Supabase)
+        if (uploadError.message?.includes('already exists')) {
+          duplicates.push(fileName);
+        } else {
+          errors.push(fileName);
+          console.error(`❌ Upload failed for ${fileName}:`, uploadError.message);
         }
+      } else {
+        uploaded.push(fileName);
       }
-      return res.status(401).json({ success: false, message: 'Wrong Password' });
+    } catch (err) {
+      errors.push(fileName);
+      console.error(`❌ Error uploading ${fileName}:`, err.message);
     }
+  }
 
-    // ── Success ────────────────────────────────────────
-    const uploaded   = req.files ? req.files.map(f => f.filename) : [];
-    const duplicates = req.skippedFiles || [];
+  console.log(`✅ Uploaded ${uploaded.length} font(s)`);
+  if (duplicates.length) console.log(`⚠️  Skipped ${duplicates.length} duplicate(s)`);
 
-    console.log(`✅ Uploaded ${uploaded.length} font(s):`, uploaded.join(', ') || 'none');
-    if (duplicates.length) {
-      console.log(`⚠️  Skipped ${duplicates.length} duplicate(s):`, duplicates.join(', '));
-    }
-
-    res.json({
-      success:    true,
-      message:    'Fonts uploaded successfully',
-      uploaded,
-      duplicates
-    });
+  res.json({
+    success:    true,
+    message:    'Upload complete',
+    uploaded,
+    duplicates,
+    errors,
   });
 });
 
 // ────────────────────────────────────────────────────────────
-//  Global Error Handler
+//  Global error handler
 // ────────────────────────────────────────────────────────────
 
 app.use((err, _req, res, _next) => {
   console.error('💥 Unhandled error:', err.message);
   res.status(500).json({
     success: false,
-    message: process.env.NODE_ENV === 'production'
-      ? 'Internal server error'
-      : err.message
+    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
   });
 });
 
 // ────────────────────────────────────────────────────────────
-//  Server Startup
+//  Start
 // ────────────────────────────────────────────────────────────
 
-// Keep the process alive and log unhandled errors instead of crashing
-process.on('uncaughtException', (err) => {
-  console.error('💥 Uncaught exception:', err.message);
-});
-process.on('unhandledRejection', (reason) => {
-  console.error('💥 Unhandled rejection:', reason);
-});
+process.on('uncaughtException',  (err)    => console.error('💥 Uncaught:', err.message));
+process.on('unhandledRejection', (reason) => console.error('💥 Rejection:', reason));
 
 (async () => {
-  // Ensure the fonts directory exists
-  if (!fs.existsSync(FONTS_DIR)) {
-    fs.mkdirSync(FONTS_DIR, { recursive: true });
-    console.log('📁 Created fonts directory:', FONTS_DIR);
-  }
-
-  // Count existing fonts
+  // Verify Supabase connection on startup
   const fonts = await getFontList();
-  console.log(`📦 Found ${fonts.length} font(s) in the library.`);
+  console.log(`📦 Supabase bucket "${BUCKET}": ${fonts.length} font(s) found.`);
 
-  // Start listening — if port is busy, wait and retry up to 10 times
-  function startServer(port, attempt = 1) {
-    const server = app.listen(port, () => {
-      console.log('');
-      console.log('───────────────────────────────────────────');
-      console.log(`  🚀  Font Manager running at:`);
-      console.log(`       http://localhost:${port}`);
-      console.log('───────────────────────────────────────────');
-      console.log('');
-    });
-
-    server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        if (attempt <= 10) {
-          console.log(`⏳ Port ${port} busy — retrying in 2s (attempt ${attempt}/10)…`);
-          setTimeout(() => startServer(port, attempt + 1), 2000);
-        } else {
-          console.error(`❌ Could not bind to port ${port} after 10 attempts. Is another server still running?`);
-          process.exit(1);
-        }
-      } else {
-        console.error('❌ Server error:', err.message);
-      }
-    });
-  }
-
-  startServer(PORT);
+  app.listen(PORT, () => {
+    console.log('');
+    console.log('─────────────────────────────────────────');
+    console.log(`  🚀  Font Manager running at:`);
+    console.log(`       http://localhost:${PORT}`);
+    console.log(`  ☁️   Storage: Supabase (${BUCKET})`);
+    console.log('─────────────────────────────────────────');
+    console.log('');
+  });
 })();

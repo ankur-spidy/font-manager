@@ -272,7 +272,8 @@ function createFontCard(font, index) {
     <div class="font-preview"
          style="font-family: '${familyName}', sans-serif; font-size: ${currentFontSize}px;"
          data-font-file="${escapeAttr(font.fileName)}"
-         data-font-name="${escapeAttr(font.name)}">
+         data-font-name="${escapeAttr(font.name)}"
+         data-font-url="${escapeAttr(font.url || '')}">
       ${formatPreviewText(previewText)}
     </div>
     <div class="font-card-footer">
@@ -285,7 +286,7 @@ function createFontCard(font, index) {
         ${escapeHTML(font.size)}
       </span>
       <a href="/api/fonts/download/${encodeURIComponent(font.fileName)}"
-         class="download-btn" download>
+         class="download-btn" download="${escapeAttr(font.fileName)}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -311,14 +312,16 @@ function buildFontFamilyName(font) {
 async function loadFontFace(font) {
   const familyName = buildFontFamilyName(font);
   if (loadedFontFaces.has(familyName)) return familyName;
-  loadedFontFaces.add(familyName); // Mark immediately to prevent concurrent duplicate load calls
+  loadedFontFaces.add(familyName);
   try {
-    const ff = new FontFace(familyName, `url('/fonts/${encodeURIComponent(font.fileName)}')`);
+    // Use Supabase public URL if available, fallback to local /fonts/ path
+    const fontUrl = font.url || `/fonts/${encodeURIComponent(font.fileName)}`;
+    const ff = new FontFace(familyName, `url('${fontUrl}')`);
     const loaded = await ff.load();
     document.fonts.add(loaded);
   } catch (err) {
     console.warn(`Could not load font "${font.name}":`, err.message);
-    loadedFontFaces.delete(familyName); // Cleanup if loading failed
+    loadedFontFaces.delete(familyName);
   }
   return familyName;
 }
@@ -330,7 +333,11 @@ function observeNewCards() {
         if (entry.isIntersecting) {
           const preview = entry.target.querySelector('.font-preview');
           if (preview?.dataset.fontFile) {
-            loadFontFace({ name: preview.dataset.fontName, fileName: preview.dataset.fontFile });
+            loadFontFace({
+              name:     preview.dataset.fontName,
+              fileName: preview.dataset.fontFile,
+              url:      preview.dataset.fontUrl || null,
+            });
           }
           fontObserver.unobserve(entry.target);
         }

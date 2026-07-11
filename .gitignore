@@ -1,9 +1,6 @@
 # Dependencies
 node_modules/
 
-# Font files (too large for GitHub — store separately)
-fonts/
-
 # Environment files
 .env
 .env.local
