@@ -499,7 +499,7 @@ function showUploadResults(data) {
   html += `
     <div class="result-actions">
       <button class="btn btn-primary" id="upload-more-btn">Upload More</button>
-      <a href="/" class="btn btn-secondary">Browse Fonts</a>
+      <a href="index.html" class="btn btn-secondary">Browse Fonts</a>
     </div>
   `;
 

@@ -155,11 +155,14 @@ async function listAllFiles() {
           'Authorization': `Bearer ${SUPABASE_ANON}`,
           'apikey': SUPABASE_ANON,
         },
-        body: JSON.stringify({ limit, offset, sortBy: { column: 'name', order: 'asc' } }),
+        body: JSON.stringify({ prefix: '', limit, offset, sortBy: { column: 'name', order: 'asc' } }),
       }
     );
 
-    if (!res.ok) throw new Error(`Supabase list error: ${res.status}`);
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Supabase list error ${res.status}: ${errText}`);
+    }
     const data = await res.json();
     if (!data || data.length === 0) break;
     allFiles.push(...data);
